@@ -1,3 +1,9 @@
+# -----------------------------------------
+# XCMS Peak Picking and Data Export
+# -----------------------------------------
+# This script processes mzML files with the XCMS package
+# and generates feature tables for downstream analysis.
+# -----------------------------------------
 # ========== Libraries ==========
 if (!requireNamespace("xcms", quietly = TRUE)) {
   install.packages("BiocManager")
@@ -22,8 +28,10 @@ library(mzR)
 library(MsExperiment)
 
 # ========== Parameters ==========
+# Location of your mzML files
 parent_dir <- '/Users/dmcbee/Desktop/Current MS Data/XCMS_Script'
-output_dir <- file.path(parent_dir, "XCMS_Results")  # Directory for results
+# Directory where results will be written
+output_dir <- file.path(parent_dir, "XCMS_Results")
 
 # CentWave parameters for peak detection
 ppm <- 10
@@ -36,10 +44,11 @@ rt_correction <- TRUE
 rt_correction_method <- "Obiwarp"
 
 # Peak grouping parameters
+# Peak grouping bandwidth (seconds)
 group_bandwidth <- 5
 
 # ========== Script ==========
-# Set working directory
+# Set working directory to the location of the mzML files
 setwd(parent_dir)
 
 # Create output directory if it does not exist
@@ -48,13 +57,13 @@ if (!dir.exists(output_dir)) {
 }
 cat("All outputs will be saved in: ", output_dir, "\n")
 
-# List all mzML files in the directory recursively (so that files in subfolders are included)
+# List all mzML files in the directory and its subfolders
 files <- list.files(path = parent_dir, pattern = "\\.mzML$", full.names = TRUE, recursive = TRUE)
 
-# Create a vector of group labels from the parent folder name for each file
+# Each sample group is derived from the parent folder name
 group_labels <- basename(dirname(files))
 
-# Update metadata to include unique groups (if desired)
+# Basic metadata about this processing run
 metadata <- list(
   ParentDirectory = parent_dir,
   OutputDirectory = output_dir,
@@ -75,15 +84,16 @@ cat("Reading data files...\n")
 raw_data <- readMSData(files, mode = "onDisk")
 
 # Peak detection
+# Perform peak detection using the CentWave algorithm
 cat("Performing peak detection...\n")
 cwp <- CentWaveParam(ppm = ppm, peakwidth = peakwidth, snthresh = snthresh, noise = noise, fitgauss = TRUE)
+# Use serial processing to avoid issues on systems without parallel backends
 serialParam <- SerialParam()
-
-# Force Single Core Processing
-register(SerialParam())
+register(serialParam)
 xdata <- findChromPeaks(raw_data, param = cwp, BPPARAM = serialParam)
 
 # Retention time correction
+# Apply retention time correction if enabled
 register(SerialParam())  # Force serial processing on macOS
 if (rt_correction && length(files) > 1) {
   cat("Correcting retention time...\n")
@@ -102,6 +112,7 @@ grouped_peaks <- groupChromPeaks(
 )
 
 # Fill in missing peaks
+# Fill in missing peaks to generate a complete data matrix
 cat("Filling in missing peaks...\n")
 filled_peaks <- fillChromPeaks(grouped_peaks)
 
@@ -151,7 +162,7 @@ metaboanalyst_data <- rbind(sample_groups, metaboanalyst_data)
 write.csv(metaboanalyst_data, file.path(output_dir, "metaboanalyst_table.csv"), row.names = FALSE)
 cat("MetaboAnalyst-ready output saved as 'metaboanalyst_table.csv'.\n")
 
-# Optional: Plot data for quality check
+# Optional: basic diagnostic plots for quality checking
 cat("Generating diagnostic plots...\n")
 # Plot TIC for each sample
 tic <- chromatogram(raw_data, aggregationFun = "sum")
@@ -168,7 +179,10 @@ if (rt_correction && length(files) > 1) {
 
 cat("XCMS processing completed. Results saved in 'XCMS_Results' folder.\n")
 
+# Another example diagnostic region
 #### Data Checks ######
+# The following section demonstrates a few ways to inspect the data.
+# Adjust the m/z and retention time ranges as needed.
 
 # Define your filtering ranges (adjust these values as needed)
 rtr <- c(305, 340)         # Retention time range (in seconds)
