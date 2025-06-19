@@ -1,4 +1,13 @@
-# Load necessary library
+# -----------------------------------------
+# Untargeted LC-MS Metabolomics Analysis
+# -----------------------------------------
+# This script performs a basic data workup on the
+# MetaboAnalyst formatted table exported from the
+# XCMS processing script.  Edit the working directory
+# and input file paths below to match your environment
+# before running.
+# -----------------------------------------
+# Load required libraries
 library(readr)
 library(dplyr)
 library(tidyr)
@@ -7,12 +16,16 @@ library(ggfortify)
 library(readxl)
 library(ggrepel)
 
-#Setwd To save files created
+# Set the working directory for output files.
+# Change this path to a suitable location on your machine.
 setwd('/Users/dmcbee/Desktop/Current MS Data/XCMS_Script/XCMS_Results/Analysis')
 
-# Import the CSV file
+# Path to the MetaboAnalyst table generated from the
+# XCMS processing script.  Update as needed.
 lcms_data <- read.csv('/Users/dmcbee/Desktop/Current MS Data/XCMS_Script/XCMS_Results/metaboanalyst_table.csv')
 
+# Example group labels used throughout the analysis
+# Modify or extend these as required for your study
 group1 <- "WT"
 group2 <- "IspC"
 group3 <- "YumC"
@@ -20,7 +33,15 @@ group4 <- "ISPC-25"
 group5 <- "YUMC-1"
 group6 <- "YUMC-25"
 
-extract_lcms_features <- function(lcms_data, pellet_mass_file = NULL, internal_standard_mz = NULL, internal_standard_RT = NULL) {
+#' Convert MetaboAnalyst export to a tidy format for analysis
+#'
+#' @param lcms_data Data frame imported from the MetaboAnalyst table.
+#' @param pellet_mass_file Optional file containing pellet masses (not used).
+#' @param internal_standard_mz Optional m/z of an internal standard (not used).
+#' @param internal_standard_RT Optional retention time of an internal standard (not used).
+extract_lcms_features <- function(lcms_data, pellet_mass_file = NULL,
+                                  internal_standard_mz = NULL,
+                                  internal_standard_RT = NULL) {
   
   # Extract grouping information (first row, excluding first column)
   grouping <- lcms_data[1, -1] %>% t() %>% as.data.frame()
@@ -60,7 +81,10 @@ extract_lcms_features <- function(lcms_data, pellet_mass_file = NULL, internal_s
   
   return(as.data.frame(stats_lcms_data))
 }
-normalize_data <- function(data, value_col = "Value", norm_method = c("median", "mean", "internal"), internal_peak = NULL) {
+#' Normalize feature intensities within each group
+normalize_data <- function(data, value_col = "Value",
+                           norm_method = c("median", "mean", "internal"),
+                           internal_peak = NULL) {
   library(dplyr)
   
   norm_method <- match.arg(norm_method)
@@ -95,7 +119,9 @@ normalize_data <- function(data, value_col = "Value", norm_method = c("median", 
   }
   return(norm_data)
 }
-scale_data <- function(data, value_col = "Normalized_Value", scale_method = c("none", "mean_center", "auto", "pareto", "range", "log")) {
+#' Apply common scaling methods to the data matrix
+scale_data <- function(data, value_col = "Normalized_Value",
+                       scale_method = c("none", "mean_center", "auto", "pareto", "range", "log")) {
   
   scale_method <- match.arg(scale_method)
   
@@ -140,7 +166,9 @@ scale_data <- function(data, value_col = "Normalized_Value", scale_method = c("n
   
   return(scaled_data)
 }
-remove_extraction_blank <- function(df, blank_threshold = 1, value_col = "Normalized_Value") {
+#' Remove features dominated by extraction blanks
+remove_extraction_blank <- function(df, blank_threshold = 1,
+                                    value_col = "Normalized_Value") {
   library(dplyr)
   
   # Calculate the average blank intensity per feature using the specified column
@@ -178,6 +206,7 @@ remove_extraction_blank <- function(df, blank_threshold = 1, value_col = "Normal
   
   return(df_filtered)
 }
+#' Helper to merge summary statistics with raw feature info
 merge_lcms_data <- function(stat_input) {
   library(dplyr)
   
@@ -198,6 +227,7 @@ merge_lcms_data <- function(stat_input) {
   
   return(result_df)
 }
+#' Simple PCA using ggplot2
 pca <- function(data, Group = "Group") {
   # Prepare the data for PCA by pivoting it to a wide format
   pca_data <- data %>%
@@ -230,6 +260,7 @@ pca <- function(data, Group = "Group") {
   
   return(p)
 }
+#' Perform pairwise t-tests between two groups
 t_test <- function(data, sig = 0.05, group1, group2) {
   # Filter data for the two groups of interest
   filtered_data <- data %>%
@@ -286,7 +317,9 @@ t_test <- function(data, sig = 0.05, group1, group2) {
   # Return the significant results for further use
   return(t_test_results)
 }
-volcano_plot <- function(data, group1, group2, n = 2, value_col = "Normalized_Value") {
+#' Calculate fold change and P-values to draw a volcano plot
+volcano_plot <- function(data, group1, group2, n = 2,
+                         value_col = "Normalized_Value") {
   library(dplyr)
   library(ggplot2)
   library(ggrepel)
@@ -370,7 +403,8 @@ volcano_plot <- function(data, group1, group2, n = 2, value_col = "Normalized_Va
   
   return(volcano)
 }
-preform_anova <- function(data) {
+#' Experimental ANOVA across all groups
+perform_anova <- function(data) {
   library(ggplot2)
   library(dplyr)
   library(plotly)
@@ -407,7 +441,8 @@ preform_anova <- function(data) {
   
   # Return the anova_results dataframe
   return(anova_results)
-} #Need to work on this function- do not use yet
+} # Function experimental - results should be interpreted cautiously
+#' Convert the tidy data back to MetaboAnalyst wide format
 revert_lcms_features <- function(stats_lcms_data) {
   library(dplyr)
   library(tidyr)
@@ -454,14 +489,17 @@ revert_lcms_features <- function(stats_lcms_data) {
 }
 
 
-# Rework the data to preform stats; normalize if pelletmasses or standards are provided
-stats_lcms_data <- extract_lcms_features(lcms_data, pellet_mass_file = pellet_mass_excel)
+# Rework the data for statistical analysis.  The optional
+# pellet mass file argument in `extract_lcms_features()` is
+# not yet implemented, so only the LC-MS table is supplied here.
+stats_lcms_data <- extract_lcms_features(lcms_data)
 stats_lcms_data <- remove_extraction_blank(stats_lcms_data, blank_threshold = 10, value_col = "Value") %>%
   filter(Group != "EB")%>%
   filter(Value > 1000)
 stats_lcms_data <- scale_data(stats_lcms_data, value_col = "Value", scale_method = "auto")
-stats_lcms_data<-  normalize_data(stats_lcms_data,norm_method = "mean", value_col = "Scaled_Value")
+stats_lcms_data<-  normalize_data(stats_lcms_data, norm_method = "mean", value_col = "Scaled_Value")
 
+# Number of unique features retained after filtering
 length(unique(stats_lcms_data$ID))
 
 #PCA
@@ -472,11 +510,12 @@ ggsave('PCA_plot_EB_Removed.pdf')
 # T_Test
 t_test_results <- t_test(stats_lcms_data, sig = 0.05, group2, group3)
 
-#fold cange with volcano plot
-volcano_output <- volcano_plot(stats_lcms_data, group2, group3, n=1, value_col = "Value")
+# Fold change analysis with volcano plot
+volcano_output <- volcano_plot(stats_lcms_data, group2, group3, n = 1, value_col = "Value")
 
-#ANOVA
-preform_anova <- anova(stats_lcms_data) #Need to work on this function- do not use yet
+# ANOVA (function under development)
+# anova_results <- perform_anova(stats_lcms_data)
 
-metaboanaylist_export <- revert_lcms_features(blank_removed) 
-write.csv(metaboanaylist_export, file.path( "metaboanalyst_post_workup.csv"), row.names = FALSE)
+# Export the processed data back to the MetaboAnalyst format
+metaboanalyst_export <- revert_lcms_features(stats_lcms_data)
+write.csv(metaboanalyst_export, file.path("metaboanalyst_post_workup.csv"), row.names = FALSE)
