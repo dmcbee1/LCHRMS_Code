@@ -8,17 +8,15 @@ library(readxl)
 library(ggrepel)
 
 #Setwd To save files created
-setwd('/Users/dmcbee/Desktop/Current MS Data/XCMS_Script/XCMS_Results/Analysis')
+setwd('/Users/dmcbee/Desktop/Current MS Data/XCMS_Script/XCMS_Results')
 
 # Import the CSV file
 lcms_data <- read.csv('/Users/dmcbee/Desktop/Current MS Data/XCMS_Script/XCMS_Results/metaboanalyst_table.csv')
 
-group1 <- "WT"
-group2 <- "IspC"
-group3 <- "YumC"
-group4 <- "ISPC-25"
-group5 <- "YUMC-1"
-group6 <- "YUMC-25"
+group1 <- "EB"
+group2 <- "WT"
+group3 <- "yumC"
+group4 <- "ispC"
 
 extract_lcms_features <- function(lcms_data, pellet_mass_file = NULL, internal_standard_mz = NULL, internal_standard_RT = NULL) {
   
@@ -198,11 +196,11 @@ merge_lcms_data <- function(stat_input) {
   
   return(result_df)
 }
-pca <- function(data, Group = "Group") {
+pca <- function(data, Group = "Group", Value = "Value") {
   # Prepare the data for PCA by pivoting it to a wide format
   pca_data <- data %>%
-    select(Sample, Group, ID, Normalized_Value) %>%
-    pivot_wider(names_from = ID, values_from = Normalized_Value, values_fn = mean, values_fill = 0)
+    select(Sample, Group, ID, Value) %>%
+    pivot_wider(names_from = ID, values_from = Value, values_fn = mean, values_fill = 0)
   
   # Set the Sample column as row names and remove it from the data frame
   rownames(pca_data) <- pca_data$Sample
@@ -230,7 +228,7 @@ pca <- function(data, Group = "Group") {
   
   return(p)
 }
-t_test <- function(data, sig = 0.05, group1, group2) {
+t_test <- function(data, sig = 0.05, group1, group2, Value = "Value") {
   # Filter data for the two groups of interest
   filtered_data <- data %>%
     filter(Group %in% c(group1, group2))
@@ -239,11 +237,11 @@ t_test <- function(data, sig = 0.05, group1, group2) {
   t_test_results <- filtered_data %>%
     group_by(ID) %>%
     summarize(
-      p_value = t.test(Normalized_Value ~ Group)$p.value,
+      p_value = t.test(Value ~ Group)$p.value,
       mz = mean(mz),   # Take the first mz value (should be consistent within ID)
       RT = mean(RT),   # Take the first RT value (should be consistent within ID)
-      !!group1 := round(mean(Normalized_Value[Group == group1], na.rm = TRUE)),  # Mean intensity for group 1, rounded
-      !!group2 := round(mean(Normalized_Value[Group == group2], na.rm = TRUE))   # Mean intensity for group 2, rounded
+      !!group1 := round(mean(Value[Group == group1], na.rm = TRUE)),  # Mean intensity for group 1, rounded
+      !!group2 := round(mean(Value[Group == group2], na.rm = TRUE))   # Mean intensity for group 2, rounded
     )
   
   # Filter for significant p-values
@@ -286,7 +284,7 @@ t_test <- function(data, sig = 0.05, group1, group2) {
   # Return the significant results for further use
   return(t_test_results)
 }
-volcano_plot <- function(data, group1, group2, n = 2, value_col = "Normalized_Value") {
+volcano_plot <- function(data, group1, group2, n = 2, value_col = "Value") {
   library(dplyr)
   library(ggplot2)
   library(ggrepel)
@@ -473,7 +471,7 @@ ggsave('PCA_plot_EB_Removed.pdf')
 t_test_results <- t_test(stats_lcms_data, sig = 0.05, group2, group3)
 
 #fold cange with volcano plot
-volcano_output <- volcano_plot(stats_lcms_data, group2, group3, n=1, value_col = "Value")
+volcano_output <- volcano_plot(stats_lcms_data, group3, group4, n=1, value_col = "Value")
 
 #ANOVA
 preform_anova <- anova(stats_lcms_data) #Need to work on this function- do not use yet
