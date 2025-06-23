@@ -93,51 +93,55 @@ normalize_data <- function(data, value_col = "Value", norm_method = c("median", 
   }
   return(norm_data)
 }
-scale_data <- function(data, value_col = "Normalized_Value", scale_method = c("none", "mean_center", "auto", "pareto", "range", "log")) {
-  
+scale_data <- function(data,
+                       value_col   = "Normalized_Value",
+                       scale_method = c("none", "mean_center", "auto", "pareto", "range", "log")) {
+  # Validate method
   scale_method <- match.arg(scale_method)
   
-  # Internal function to apply the chosen scaling to a numeric vector
+  # Internal scaler
   apply_scaling <- function(x) {
     x <- as.numeric(x)
     
-    # Handle zero/negative values if "log" is chosen
-    # (Here we do log(x+1) so it works for x >= 0.)
+    # 1) No scaling
+    if (scale_method == "none") {
+      return(x)
+    }
+    # 2) Log scaling
     if (scale_method == "log") {
       return(log(x + 1))
     }
     
-    # Compute summary stats
+    # 3) All other methods need summary stats
     x_mean <- mean(x, na.rm = TRUE)
-    x_sd   <- sd(x, na.rm = TRUE)
-    x_min  <- min(x, na.rm = TRUE)
-    x_max  <- max(x, na.rm = TRUE)
+    x_sd   <- sd(x,   na.rm = TRUE)
+    x_min  <- min(x,  na.rm = TRUE)
+    x_max  <- max(x,  na.rm = TRUE)
     
-    # Avoid division-by-zero or degenerate cases
-    if (x_sd == 0)  x_sd <- 1
-    if (x_max == x_min) {
-      # If all values are identical, range scaling becomes all zeros
-      x_max <- x_min + 1e-16
-    }
+    # Guard against NA or zero
+    if (is.na(x_sd) || x_sd == 0)       x_sd  <- 1
+    if (is.na(x_min) || x_max == x_min) x_max <- x_min + 1e-16
     
-    # Switch among supported methods
+    # Switch on method
     switch(scale_method,
-           "none"         = x,
-           "mean_center"  = x - x_mean,
-           "auto"         = (x - x_mean) / x_sd,        # unit variance
-           "pareto"       = (x - x_mean) / sqrt(x_sd),  # Pareto
-           "range"        = (x - x_min)  / (x_max - x_min)
+           
+           mean_center = x - x_mean,
+           
+           auto        = (x - x_mean) / x_sd,        # unit variance
+           
+           pareto      = (x - x_mean) / sqrt(x_sd),  # Pareto scaling
+           
+           range       = (x - x_min)  / (x_max - x_min)
     )
   }
   
-  # Group by feature ID (typical for metabolomics), apply scaling across samples
-  scaled_data <- data %>%
+  # Apply per feature (ID)
+  data %>%
     group_by(ID) %>%
     mutate(Scaled_Value = apply_scaling(.data[[value_col]])) %>%
     ungroup()
-  
-  return(scaled_data)
 }
+
 remove_extraction_blank <- function(df, blank_threshold = 1, value_col = "Normalized_Value") {
   library(dplyr)
   
@@ -351,7 +355,7 @@ volcano_plot <- function(data, group1, group2, n = 2, value_col = "Value") {
     theme_classic() +
     geom_text_repel(
       data = subset(volcano, p_value < 0.05),
-      aes(label = ID),
+      aes(label = mz),
       size = 3
     )
   
@@ -456,7 +460,7 @@ revert_lcms_features <- function(stats_lcms_data) {
 stats_lcms_data <- extract_lcms_features(lcms_data, pellet_mass_file = pellet_mass_excel)
 stats_lcms_data <- remove_extraction_blank(stats_lcms_data, blank_threshold = 10, value_col = "Value") %>%
   filter(Group != "EB")%>%
-  filter(Value > 1000)
+  filter(Value > 5000)
 stats_lcms_data <- scale_data(stats_lcms_data, value_col = "Value", scale_method = "auto")
 stats_lcms_data<-  normalize_data(stats_lcms_data,norm_method = "mean", value_col = "Scaled_Value")
 
@@ -471,10 +475,83 @@ ggsave('PCA_plot_EB_Removed.pdf')
 t_test_results <- t_test(stats_lcms_data, sig = 0.05, group2, group3)
 
 #fold cange with volcano plot
-volcano_output <- volcano_plot(stats_lcms_data, group3, group4, n=1, value_col = "Value")
+volcano_output <- volcano_plot(stats_lcms_data, group2, group3, n=1, value_col = "Value")
+
+sig_peaks <- volcano_output %>%
+  filter(
+    p_value < 0.1,
+    fold_change < 0.5
+  )
 
 #ANOVA
 preform_anova <- anova(stats_lcms_data) #Need to work on this function- do not use yet
 
 metaboanaylist_export <- revert_lcms_features(blank_removed) 
 write.csv(metaboanaylist_export, file.path( "metaboanalyst_post_workup.csv"), row.names = FALSE)
+
+
+
+library(xcms)
+library(MSnbase)
+library(dplyr)
+library(RColorBrewer)
+
+# — 0) pick which groups you actually want to plot —
+keep_groups <- c("WT", "yumC","ispC")   # ← edit this as you like
+
+# — 1) get your files & derive group labels —
+parent_dir   <- '/Users/dmcbee/Desktop/Current MS Data/XCMS_Script'
+setwd(parent_dir)
+files        <- list.files(pattern="\\.mzML$", full.names=TRUE, recursive=TRUE)
+group_labels <- basename(dirname(files))   # one label per file
+
+# — 2) filter to only your chosen groups —
+sel          <- group_labels %in% keep_groups
+files_sel    <- files[sel]
+group_labels <- group_labels[sel]         # now only WT, yumC, ispC, etc.
+
+# — 3) build your palette & map colours —
+uniq_groups  <- keep_groups               # in the order you want them in the legend
+palette_cols <- brewer.pal(n=length(uniq_groups), name="Set1")
+names(palette_cols) <- uniq_groups
+group_colors <- palette_cols[group_labels]  # one colour per file
+
+# — 4) load *only* the selected files —
+raw_data     <- readMSData(files_sel, msLevel=1, mode="onDisk")
+
+# — 5) make sure your RT is in seconds —
+sig_peaks    <- sig_peaks %>% rename(RT_sec = RT)
+
+# — 6) plotting loop (unchanged except for using *_sel variables) —
+mz_tol_ppm    <- 10
+rt_window_sec <- 60
+ppm_to_da     <- function(mz, ppm) mz * ppm / 1e6
+
+for (i in seq_len(nrow(sig_peaks))) {
+  mz_val <- sig_peaks$mz[i]
+  rt_val <- sig_peaks$RT[i]
+  tol_da  <- ppm_to_da(mz_val, mz_tol_ppm)
+  
+  eic <- MSnbase::chromatogram(raw_data,
+                               mz = c(mz_val - tol_da, mz_val + tol_da),
+                               rt = c(rt_val - rt_window_sec,
+                                      rt_val + rt_window_sec))
+  
+  plot(eic,
+       type = "l",
+       col  = group_colors,
+       lwd  = 2,
+       xlab = "Retention Time (s)",
+       ylab = "Intensity",
+       main = sprintf("Feature ID %d — m/z %.4f ±%d ppm",
+                      sig_peaks$ID[i], mz_val, mz_tol_ppm))
+  
+  legend("topright",
+         legend = uniq_groups,
+         col    = palette_cols,
+         lty    = 1,
+         lwd    = 2,
+         bty    = "n")
+}
+
+
